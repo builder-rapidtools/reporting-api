@@ -1,0 +1,33 @@
+{
+  "name": "reporting-tool-backend",
+  "version": "0.1.0",
+  "description": "RapidTools Automated Weekly Client Reporting Tool - Backend API",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler publish",
+    "test": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "cloudflare-workers",
+    "reporting",
+    "ga4",
+    "agencies"
+  ],
+  "author": "RapidTools",
+  "license": "MIT",
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20231025.0",
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.3",
+    "vitest": "^1.0.4",
+    "wrangler": "^4.54.0"
+  },
+  "dependencies": {
+    "@types/uuid": "^9.0.7",
+    "hono": "^3.11.7",
+    "pdf-lib": "^1.17.1",
+    "uuid": "^9.0.1"
+  }
+}

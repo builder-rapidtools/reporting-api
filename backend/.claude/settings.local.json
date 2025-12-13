@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run typecheck:*)",
+      "Bash(npx wrangler dev:*)",
+      "Bash(lsof:*)",
+      "Bash(xargs kill -9)",
+      "Bash(curl:*)",
+      "Bash(stripe login)",
+      "Bash(brew install:*)",
+      "Bash(stripe listen:*)",
+      "Bash(python3:*)",
+      "Bash(stripe checkout sessions retrieve:*)"
+    ]
+  }
+}

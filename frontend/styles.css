@@ -1,0 +1,37 @@
+/**
+ * RapidTools Frontend - Custom Styles
+ * Minimal custom styling (Tailwind handles most UI)
+ */
+
+/* Smooth transitions for section unlocking */
+[data-requires-auth] {
+  transition: opacity 0.3s ease, filter 0.3s ease;
+}
+
+/* Smooth status message animations */
+#status-container > div {
+  animation: slideIn 0.3s ease;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Improved code block styling */
+code {
+  font-family: 'Monaco', 'Courier New', monospace;
+  word-break: break-all;
+}
+
+/* Loading state for buttons */
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

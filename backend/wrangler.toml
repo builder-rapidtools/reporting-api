@@ -1,0 +1,28 @@
+name = "reporting-tool-api"
+main = "src/index.ts"
+compatibility_date = "2023-12-01"
+
+# KV namespace for storing agency, client, and report metadata
+[[kv_namespaces]]
+binding = "REPORTING_KV"
+id = "0e109d77c5934e168d98bd53f4a78772"
+preview_id = "e05e970f104947c6b8ef1fc84b848a43"
+
+# R2 bucket for storing CSV uploads and PDF reports
+[[r2_buckets]]
+binding = "REPORTING_R2"
+bucket_name = "rapidtools-reports"
+# Run: wrangler r2 bucket create rapidtools-reports
+
+# Environment variables for development
+# Use .dev.vars file for local development (gitignored)
+# Use wrangler secret put <NAME> for production
+
+[build]
+command = ""
+
+# Cron triggers for weekly report automation
+# Sends reports every Monday at 09:00 UTC
+# To disable cron: comment out the [triggers] section and redeploy
+[triggers]
+crons = ["0 9 * * 1"]  # Every Monday at 09:00 UTC
