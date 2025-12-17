@@ -1,0 +1,71 @@
+{
+  "service": "RapidTools Reporting API",
+  "version": "1.0",
+  "schema_version": "1.0",
+  "last_updated": "2024-12-17",
+  "base_url": "https://reporting-api.rapidtools.dev",
+  "manifest_url": "https://reporting.rapidtools.dev/manifest.json",
+  "documentation_url": "https://github.com/builder-rapidtools/rapidtools-reporting",
+  "status": "limited_testing",
+  "description": "Automated weekly client reporting service that generates branded PDF reports from analytics data and delivers them via email.",
+  "category": ["analytics", "reporting", "automation"],
+  "provider": {
+    "name": "RapidTools",
+    "contact": "reports@rapidtools.dev",
+    "jurisdiction": "UK"
+  },
+  "capabilities": {
+    "inputs": [
+      {
+        "type": "text/csv",
+        "description": "GA4 analytics export (CSV upload per client)",
+        "required_headers": ["date", "sessions", "users", "pageviews"]
+      }
+    ],
+    "outputs": [
+      {
+        "type": "application/pdf",
+        "delivery": "email + secure link"
+      }
+    ],
+    "automation": {
+      "scheduling": "weekly",
+      "idempotent": true,
+      "cron_format": "0 9 * * 1"
+    }
+  },
+  "authentication": {
+    "method": "API key",
+    "header": "x-api-key",
+    "scope": "per_agency"
+  },
+  "pricing": {
+    "model": "subscription",
+    "currency": "GBP",
+    "billing_period": "monthly",
+    "notes": "Flat rate per agency with client limits."
+  },
+  "data_handling": {
+    "storage": ["Cloudflare KV", "Cloudflare R2"],
+    "retention": "Minimum required for reporting (CSV + generated PDFs).",
+    "training_use": false
+  },
+  "failure_modes": {
+    "missing_data": "Report generation fails with clear error; scheduled run skips and logs.",
+    "duplicate_runs": "Prevented via idempotency keys.",
+    "email_failure": "Retries then logs failure."
+  },
+  "endpoints": {
+    "health": "/api/health",
+    "client_create": "/api/client",
+    "client_list": "/api/clients",
+    "client_upload_ga4_csv": "/api/client/{id}/ga4-csv",
+    "report_preview": "/api/client/{id}/report/preview",
+    "report_send": "/api/client/{id}/report/send"
+  },
+  "runtime": {
+    "platform": "cloudflare_workers",
+    "language": "typescript",
+    "framework": "hono"
+  }
+}
