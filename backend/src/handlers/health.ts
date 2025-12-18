@@ -3,16 +3,15 @@
  */
 
 import { Context } from 'hono';
-import { Env, HealthCheckResponse } from '../types';
+import { Env } from '../types';
+import { ok } from '../response-helpers';
 
 export async function handleHealthCheck(c: Context): Promise<Response> {
   const env = (c.env as Env).REPORTING_ENV || 'unknown';
 
-  const response: HealthCheckResponse = {
+  return ok(c, {
     status: 'ok',
     env,
     timestamp: new Date().toISOString(),
-  };
-
-  return c.json(response);
+  });
 }

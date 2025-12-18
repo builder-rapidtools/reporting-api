@@ -4,9 +4,10 @@
 
 import { Context } from 'hono';
 import { v4 as uuidv4 } from 'uuid';
-import { Env, Client, CreateClientRequest, CreateClientResponse, ListClientsResponse } from '../types';
+import { Env, Client, CreateClientRequest } from '../types';
 import { Storage } from '../storage';
-import { requireAgencyAuth, requireActiveSubscription } from '../auth';
+import { requireAgencyAuth, requireActiveSubscription, AuthError } from '../auth';
+import { ok, fail } from '../response-helpers';
 
 /**
  * POST /api/client
@@ -25,21 +26,13 @@ export async function handleCreateClient(c: Context): Promise<Response> {
 
     // Validate required fields
     if (!body.name || !body.email) {
-      const response: CreateClientResponse = {
-        success: false,
-        error: 'Missing required fields: name, email',
-      };
-      return c.json(response, 400);
+      return fail(c, 'MISSING_REQUIRED_FIELDS', 'Missing required fields: name, email', 400);
     }
 
     // Email validation (basic)
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(body.email)) {
-      const response: CreateClientResponse = {
-        success: false,
-        error: 'Invalid email format',
-      };
-      return c.json(response, 400);
+      return fail(c, 'INVALID_EMAIL', 'Invalid email format', 400);
     }
 
     const client: Client = {
@@ -54,22 +47,19 @@ export async function handleCreateClient(c: Context): Promise<Response> {
 
     await storage.saveClient(client);
 
-    const response: CreateClientResponse = {
-      success: true,
+    return ok(c, {
       client,
-    };
-
-    return c.json(response, 201);
+      nextSteps: {
+        uploadCsv: `/api/client/${client.id}/ga4-csv`,
+        sendReport: `/api/client/${client.id}/report/send`,
+      },
+    }, 201);
   } catch (error) {
-    if (error instanceof Error && error.name === 'AuthError') {
-      return c.json({ success: false, error: error.message, ...(error as any).metadata }, (error as any).statusCode || 401);
+    if (error instanceof AuthError) {
+      return c.json(error.toJSON(), error.statusCode);
     }
 
-    const response: CreateClientResponse = {
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    };
-    return c.json(response, 500);
+    return fail(c, 'INTERNAL_ERROR', error instanceof Error ? error.message : 'Unknown error', 500);
   }
 }
 
@@ -87,22 +77,13 @@ export async function handleListClients(c: Context): Promise<Response> {
 
     const clients = await storage.listClients(agency.id);
 
-    const response: ListClientsResponse = {
-      success: true,
-      clients,
-    };
-
-    return c.json(response);
+    return ok(c, { clients });
   } catch (error) {
-    if (error instanceof Error && error.name === 'AuthError') {
-      return c.json({ success: false, error: error.message }, (error as any).statusCode || 401);
+    if (error instanceof AuthError) {
+      return c.json(error.toJSON(), error.statusCode);
     }
 
-    const response: ListClientsResponse = {
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    };
-    return c.json(response, 500);
+    return fail(c, 'INTERNAL_ERROR', error instanceof Error ? error.message : 'Unknown error', 500);
   }
 }
 
@@ -121,30 +102,27 @@ export async function handleDeleteClient(c: Context): Promise<Response> {
     const clientId = c.req.param('id');
 
     if (!clientId) {
-      return c.json({ success: false, error: 'Missing client ID' }, 400);
+      return fail(c, 'MISSING_CLIENT_ID', 'Missing client ID', 400);
     }
 
     // Verify client exists and belongs to agency
     const client = await storage.getClient(clientId);
     if (!client) {
-      return c.json({ success: false, error: 'Client not found' }, 404);
+      return fail(c, 'CLIENT_NOT_FOUND', 'Client not found', 404);
     }
 
     if (client.agencyId !== agency.id) {
-      return c.json({ success: false, error: 'Unauthorized' }, 403);
+      return fail(c, 'FORBIDDEN', 'Unauthorized', 403);
     }
 
     await storage.deleteClient(clientId);
 
-    return c.json({ success: true });
+    return ok(c, { deleted: true });
   } catch (error) {
-    if (error instanceof Error && error.name === 'AuthError') {
-      return c.json({ success: false, error: error.message }, (error as any).statusCode || 401);
+    if (error instanceof AuthError) {
+      return c.json(error.toJSON(), error.statusCode);
     }
 
-    return c.json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    }, 500);
+    return fail(c, 'INTERNAL_ERROR', error instanceof Error ? error.message : 'Unknown error', 500);
   }
 }

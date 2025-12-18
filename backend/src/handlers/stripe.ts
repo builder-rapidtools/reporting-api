@@ -4,8 +4,9 @@
 
 import { Context } from 'hono';
 import { Env, CreateCheckoutSessionResponse } from '../types';
-import { requireAgencyAuth } from '../auth';
+import { requireAgencyAuth, AuthError } from '../auth';
 import { createCheckoutSessionForAgency, handleStripeWebhook } from '../stripe';
+import { ok, fail } from '../response-helpers';
 
 /**
  * POST /api/agency/checkout
@@ -20,27 +21,27 @@ export async function handleCreateCheckoutSession(c: Context): Promise<Response>
     // Create checkout session
     const session = await createCheckoutSessionForAgency(env, agency);
 
-    const response: CreateCheckoutSessionResponse = {
-      success: true,
+    const responseData: any = {
       checkoutUrl: session.url,
       sessionId: session.sessionId,
     };
 
     if (session.devMode) {
-      (response as any).devMode = true;
+      responseData.devMode = true;
     }
 
-    return c.json(response);
+    return ok(c, responseData);
   } catch (error) {
-    if (error instanceof Error && error.name === 'AuthError') {
-      return c.json({ success: false, error: error.message }, (error as any).statusCode || 401);
+    if (error instanceof AuthError) {
+      return c.json(error.toJSON(), error.statusCode);
     }
 
-    const response: CreateCheckoutSessionResponse = {
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    };
-    return c.json(response, 500);
+    return fail(
+      c,
+      'INTERNAL_ERROR',
+      error instanceof Error ? error.message : 'Unknown error',
+      500
+    );
   }
 }
 
@@ -53,14 +54,16 @@ export async function handleStripeWebhookEndpoint(c: Context): Promise<Response>
     const result = await handleStripeWebhook(c.env as Env, c.req.raw);
 
     if (result.success) {
-      return c.json(result, 200);
+      return ok(c, result.data || {});
     } else {
-      return c.json(result, 400);
+      return fail(c, 'WEBHOOK_ERROR', result.error || 'Webhook processing failed', 400);
     }
   } catch (error) {
-    return c.json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    }, 500);
+    return fail(
+      c,
+      'INTERNAL_ERROR',
+      error instanceof Error ? error.message : 'Unknown error',
+      500
+    );
   }
 }

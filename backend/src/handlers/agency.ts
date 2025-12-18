@@ -5,7 +5,8 @@
 import { Context } from 'hono';
 import { Env, RegisterAgencyRequest, RegisterAgencyResponse, GetAgencyResponse } from '../types';
 import { Storage } from '../storage';
-import { requireAgencyAuth } from '../auth';
+import { requireAgencyAuth, AuthError } from '../auth';
+import { ok, fail } from '../response-helpers';
 
 /**
  * POST /api/agency/register
@@ -20,28 +21,19 @@ export async function handleRegisterAgency(c: Context): Promise<Response> {
 
     // Validate required fields
     if (!body.name || !body.billingEmail) {
-      const response: RegisterAgencyResponse = {
-        success: false,
-        error: 'Missing required fields: name, billingEmail',
-      };
-      return c.json(response, 400);
+      return fail(c, 'MISSING_REQUIRED_FIELDS', 'Missing required fields: name, billingEmail', 400);
     }
 
     // Email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(body.billingEmail)) {
-      const response: RegisterAgencyResponse = {
-        success: false,
-        error: 'Invalid email format',
-      };
-      return c.json(response, 400);
+      return fail(c, 'INVALID_EMAIL', 'Invalid email format', 400);
     }
 
     // Create agency
     const agency = await storage.createAgency(body.name, body.billingEmail);
 
-    const response: RegisterAgencyResponse = {
-      success: true,
+    return ok(c, {
       agency: {
         id: agency.id,
         name: agency.name,
@@ -50,15 +42,14 @@ export async function handleRegisterAgency(c: Context): Promise<Response> {
         subscriptionStatus: agency.subscriptionStatus,
         createdAt: agency.createdAt,
       },
-    };
-
-    return c.json(response, 201);
+    }, 201);
   } catch (error) {
-    const response: RegisterAgencyResponse = {
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    };
-    return c.json(response, 500);
+    return fail(
+      c,
+      'INTERNAL_ERROR',
+      error instanceof Error ? error.message : 'Unknown error',
+      500
+    );
   }
 }
 
@@ -74,21 +65,19 @@ export async function handleGetAgency(c: Context): Promise<Response> {
     // Return agency without API key
     const { apiKey, ...agencyWithoutKey } = agency;
 
-    const response: GetAgencyResponse = {
-      success: true,
+    return ok(c, {
       agency: agencyWithoutKey,
-    };
-
-    return c.json(response);
+    });
   } catch (error) {
-    if (error instanceof Error && error.name === 'AuthError') {
-      return c.json({ success: false, error: error.message }, (error as any).statusCode || 401);
+    if (error instanceof AuthError) {
+      return c.json(error.toJSON(), error.statusCode);
     }
 
-    const response: GetAgencyResponse = {
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    };
-    return c.json(response, 500);
+    return fail(
+      c,
+      'INTERNAL_ERROR',
+      error instanceof Error ? error.message : 'Unknown error',
+      500
+    );
   }
 }

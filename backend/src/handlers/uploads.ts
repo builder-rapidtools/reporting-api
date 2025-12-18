@@ -5,7 +5,8 @@
 import { Context } from 'hono';
 import { Env, UploadGA4CsvResponse, GA4CsvRow, ReportMetrics } from '../types';
 import { Storage } from '../storage';
-import { requireAgencyAuth, requireActiveSubscription } from '../auth';
+import { requireAgencyAuth, requireActiveSubscription, AuthError } from '../auth';
+import { ok, fail } from '../response-helpers';
 
 /**
  * POST /api/client/:id/ga4-csv
@@ -23,48 +24,32 @@ export async function handleUploadGA4Csv(c: Context): Promise<Response> {
     const clientId = c.req.param('id');
 
     if (!clientId) {
-      const response: UploadGA4CsvResponse = {
-        success: false,
-        error: 'Missing client ID',
-      };
-      return c.json(response, 400);
+      return fail(c, 'MISSING_REQUIRED_FIELDS', 'Missing client ID', 400);
     }
 
     // Verify client exists
     const client = await storage.getClient(clientId);
     if (!client) {
-      const response: UploadGA4CsvResponse = {
-        success: false,
-        error: 'Client not found',
-      };
-      return c.json(response, 404);
+      return fail(c, 'CLIENT_NOT_FOUND', 'Client not found', 404);
     }
 
     // Verify client belongs to authenticated agency
     if (client.agencyId !== agency.id) {
-      return c.json({ success: false, error: 'Unauthorized' }, 403);
+      return fail(c, 'UNAUTHORIZED', 'Unauthorized', 403);
     }
 
     // Get CSV content from request body
     const csvContent = await c.req.text();
 
     if (!csvContent || csvContent.trim().length === 0) {
-      const response: UploadGA4CsvResponse = {
-        success: false,
-        error: 'Empty CSV content',
-      };
-      return c.json(response, 400);
+      return fail(c, 'INVALID_CSV', 'Empty CSV content', 400);
     }
 
     // Parse and validate CSV
     const parsedData = parseGA4Csv(csvContent);
 
     if (parsedData.length === 0) {
-      const response: UploadGA4CsvResponse = {
-        success: false,
-        error: 'No valid rows found in CSV',
-      };
-      return c.json(response, 400);
+      return fail(c, 'INVALID_CSV', 'No valid rows found in CSV', 400);
     }
 
     // Upload CSV to R2
@@ -79,29 +64,28 @@ export async function handleUploadGA4Csv(c: Context): Promise<Response> {
 
     await storage.saveIntegrationConfig(integrationConfig);
 
-    const response: UploadGA4CsvResponse = {
-      success: true,
+    return ok(c, {
       uploadedAt: integrationConfig.ga4CsvUploadedAt,
       rowsProcessed: parsedData.length,
-    };
-
-    return c.json(response);
+    });
   } catch (error) {
-    if (error instanceof Error && error.name === 'AuthError') {
-      return c.json({ success: false, error: error.message, ...(error as any).metadata }, (error as any).statusCode || 401);
+    if (error instanceof AuthError) {
+      return c.json(error.toJSON(), error.statusCode);
     }
 
-    const response: UploadGA4CsvResponse = {
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    };
-    return c.json(response, 500);
+    return fail(
+      c,
+      'INTERNAL_ERROR',
+      error instanceof Error ? error.message : 'Unknown error',
+      500
+    );
   }
 }
 
 /**
  * Parse GA4 CSV content into structured data
- * Expected columns: date, sessions, users, pageviews, page_path (optional), page_views (optional)
+ * Required columns: date, sessions, users
+ * Optional columns: pageviews, page_path, page_views
  */
 function parseGA4Csv(csvContent: string): GA4CsvRow[] {
   const lines = csvContent.trim().split('\n');
@@ -113,11 +97,14 @@ function parseGA4Csv(csvContent: string): GA4CsvRow[] {
   const header = lines[0].split(',').map(h => h.trim().toLowerCase());
 
   // Validate required columns
-  const requiredColumns = ['date', 'sessions', 'users', 'pageviews'];
-  for (const col of requiredColumns) {
-    if (!header.includes(col)) {
-      throw new Error(`Missing required column: ${col}`);
-    }
+  const requiredColumns = ['date', 'sessions', 'users'];
+  const missingColumns = requiredColumns.filter(col => !header.includes(col));
+
+  if (missingColumns.length > 0) {
+    throw new Error(
+      `Missing required CSV columns: ${missingColumns.join(', ')}. ` +
+      `Required columns are: ${requiredColumns.join(', ')}`
+    );
   }
 
   const rows: GA4CsvRow[] = [];
@@ -137,10 +124,15 @@ function parseGA4Csv(csvContent: string): GA4CsvRow[] {
       date: values[header.indexOf('date')],
       sessions: parseInt(values[header.indexOf('sessions')], 10) || 0,
       users: parseInt(values[header.indexOf('users')], 10) || 0,
-      pageviews: parseInt(values[header.indexOf('pageviews')], 10) || 0,
+      pageviews: 0,
     };
 
     // Optional columns
+    const pageviewsIndex = header.indexOf('pageviews');
+    if (pageviewsIndex !== -1) {
+      row.pageviews = parseInt(values[pageviewsIndex], 10) || 0;
+    }
+
     const pagePathIndex = header.indexOf('page_path');
     if (pagePathIndex !== -1) {
       row.page_path = values[pagePathIndex];
