@@ -10,11 +10,13 @@ export interface Env {
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
   STRIPE_PRICE_ID_STARTER?: string;
+  REQUIRE_LIVE_STRIPE_IN_PROD?: string;
   EMAIL_PROVIDER_API_KEY?: string;
   EMAIL_FROM_ADDRESS?: string;
   BASE_URL?: string;
   FRONTEND_URL?: string;
   SENTRY_DSN?: string;
+  ADMIN_SECRET?: string;
 }
 
 export type AgencyId = string;
@@ -106,6 +108,10 @@ export interface CreateClientRequest {
 export interface CreateClientResponse {
   success: boolean;
   client?: Client;
+  nextSteps?: {
+    uploadCsv: string;
+    sendReport: string;
+  };
   error?: string;
 }
 
