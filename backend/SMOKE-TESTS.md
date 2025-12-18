@@ -53,6 +53,36 @@
 
 ---
 
+## CI vs Manual Execution
+
+### CI (Automated - GitHub Actions)
+
+**What runs**: Non-authenticated tests only (tests 1-3)
+
+**Why**:
+- No secrets required (least privilege)
+- Safe for public PRs
+- Validates core security posture
+
+**When**: Every push to main, every pull request
+
+**Workflow**: `.github/workflows/smoke-tests-non-auth.yml`
+
+### Manual (Local or Protected Environments)
+
+**What runs**: Full test suite including authenticated tests (tests 1-7)
+
+**Why**:
+- Validates complete trust-boundary chain (mint → download → tamper detection)
+- Requires production credentials
+- Should run after deployment to verify full functionality
+
+**When**: Post-deployment verification, security audits
+
+**How**: `./scripts/run-smoke-tests-prod.sh` with credentials
+
+---
+
 ## Environment Variables
 
 All environment variables are **optional**. Non-authenticated tests run without any configuration.
