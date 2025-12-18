@@ -168,11 +168,19 @@ async function testMintSignedUrl() {
     return null;
   }
 
-  if (response.status === 200 && data.ok === true && data.data?.signedUrl) {
+  // Accept both "url" and "signedUrl" field names
+  const signedUrl = data.data?.url || data.data?.signedUrl;
+
+  if (response.status === 200 && data.ok === true && signedUrl) {
     addResult('Mint Signed PDF URL', 'PASS', `200 OK - got signed URL (expires: ${data.data.expiresAt || 'N/A'})`);
-    return data.data.signedUrl;
+    return signedUrl;
+  } else if (response.status === 404) {
+    // 404 on this endpoint means the feature is not deployed (endpoint missing)
+    // This is different from PDF download where 404 is acceptable security behavior
+    addResult('Mint Signed PDF URL', 'FAIL', `404 - endpoint not found (deployment issue, not security)`);
+    return null;
   } else {
-    addResult('Mint Signed PDF URL', 'FAIL', `Expected 200 with signedUrl, got ${response.status}: ${data.error?.code || 'unknown'}`);
+    addResult('Mint Signed PDF URL', 'FAIL', `Expected 200 with url/signedUrl, got ${response.status}: ${data.error?.code || 'unknown'}`);
     return null;
   }
 }

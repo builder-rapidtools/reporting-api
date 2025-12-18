@@ -28,7 +28,8 @@
 5. **Mint Signed PDF URL** (`POST /api/reports/:clientId/:filename/signed-url`)
    - Requires: `RAPIDTOOLS_API_KEY`, `RAPIDTOOLS_CLIENT_ID`
    - Verifies: Signed URL generation works
-   - Expects: `200 OK` with `{ ok: true, data: { signedUrl, expiresAt } }`
+   - Expects: `200 OK` with `{ ok: true, data: { url, expiresAt } }`
+   - **Note**: 404 on this endpoint indicates deployment issue (missing Phase 2+ code), not security behavior
 
 6. **Fetch Signed PDF URL** (`GET <signedUrl>`)
    - Requires: Valid signed URL from test #5
@@ -256,6 +257,27 @@ pattern = "reporting-api.rapidtools.dev/*"
 **Source**: `src/handlers/clients.ts` line 141
 
 **Trigger**: Header `X-Cascade-Delete: true` (Phase 4 hardening - changed from query parameter)
+
+---
+
+## 404 Handling Logic
+
+The smoke tests distinguish between two types of 404 responses:
+
+### ✅ **404 is Acceptable** (PDF Download Endpoints)
+- **Endpoints**: `GET /reports/:agencyId/:clientId/:filename`
+- **Reason**: Security by non-disclosure - 404 prevents information leakage about which PDFs exist
+- **Test Behavior**: Treat 404 as **PASS** (security working correctly)
+
+### ❌ **404 is a Failure** (API Management Endpoints)
+- **Endpoints**: `POST /api/reports/:clientId/:filename/signed-url`, `POST /api/client/:id`, etc.
+- **Reason**: These endpoints should always exist - 404 indicates missing deployment/code
+- **Test Behavior**: Treat 404 as **FAIL** (deployment issue, not security)
+
+**Why This Matters**: Without this distinction, a missing endpoint (deployment bug) would be incorrectly interpreted as "security working". This dual handling ensures:
+- PDF security tests validate "fail closed" behavior
+- API tests detect incomplete deployments
+- Smoke tests can serve as deployment gates
 
 ---
 
