@@ -76,8 +76,9 @@ export default {
 
       if (summary.reportsFailed > 0) {
         console.log('\nFailed reports:');
+        // Hostile Audit Phase 2: No PII in logs
         for (const failure of summary.failures) {
-          console.log(`  - ${failure.agencyName} / ${failure.clientName}: ${failure.error}`);
+          console.log(`  - Agency ${failure.agencyId} / Client ${failure.clientId}: ${failure.error}`);
         }
       }
 

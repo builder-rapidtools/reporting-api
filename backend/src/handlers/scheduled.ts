@@ -23,9 +23,7 @@ export interface ScheduledRunSummary {
   reportsFailed: number;
   failures: Array<{
     agencyId: string;
-    agencyName: string;
     clientId: string;
-    clientName: string;
     error: string;
   }>;
 }
@@ -139,10 +137,10 @@ export async function handleScheduledReports(env: Env): Promise<ScheduledRunSumm
     for (const agency of activeAgencies) {
       summary.agenciesProcessed++;
 
+      // Hostile Audit Phase 2: No PII in logs
       logStructured('info', 'Processing agency', {
         runId,
         agencyId: agency.id,
-        agencyName: agency.name,
       });
 
       // Get all clients for this agency
@@ -161,12 +159,11 @@ export async function handleScheduledReports(env: Env): Promise<ScheduledRunSumm
       for (const client of weeklyClients) {
         summary.clientsProcessed++;
 
+        // Hostile Audit Phase 2: No PII in logs
         logStructured('info', 'Sending report', {
           runId,
           agencyId: agency.id,
-          agencyName: agency.name,
           clientId: client.id,
-          clientName: client.name,
         });
 
         const result = await sendClientReport(env, agency, client, {
@@ -177,52 +174,47 @@ export async function handleScheduledReports(env: Env): Promise<ScheduledRunSumm
 
         if (result.success && result.dryRun) {
           summary.reportsSent++;
+          // Hostile Audit Phase 2: No PII in logs
           logStructured('info', 'DRY RUN - Report would be sent', {
             runId,
             agencyId: agency.id,
-            agencyName: agency.name,
             clientId: client.id,
-            clientName: client.name,
             dryRun: true,
             sentAt: result.sentAt,
           });
         } else if (result.success && result.skipped) {
           summary.reportsSkipped++;
+          // Hostile Audit Phase 2: No PII in logs
           logStructured('info', 'Report skipped (already sent)', {
             runId,
             agencyId: agency.id,
             clientId: client.id,
-            clientName: client.name,
             reason: result.skipReason,
           });
         } else if (result.success) {
           summary.reportsSent++;
+          // Hostile Audit Phase 2: No PII in logs
           logStructured('info', 'Report sent successfully', {
             runId,
             agencyId: agency.id,
-            agencyName: agency.name,
             clientId: client.id,
-            clientName: client.name,
             pdfKey: result.pdfKey,
             sentAt: result.sentAt,
             retries: result.retries || 0,
           });
         } else {
           summary.reportsFailed++;
+          // Hostile Audit Phase 2: No PII in logs
           summary.failures.push({
             agencyId: agency.id,
-            agencyName: agency.name,
             clientId: client.id,
-            clientName: client.name,
             error: result.error || 'Unknown error',
           });
 
           logStructured('error', 'Report send failed', {
             runId,
             agencyId: agency.id,
-            agencyName: agency.name,
             clientId: client.id,
-            clientName: client.name,
             error: result.error,
             retries: result.retries || 0,
           });

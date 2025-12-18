@@ -13,6 +13,7 @@ import { handleRegisterAgency, handleGetAgency } from './handlers/agency';
 import { handleCreateCheckoutSession, handleStripeWebhookEndpoint } from './handlers/stripe';
 import { handlePdfDownload } from './handlers/pdf-download';
 import { handleRotateAgencyKey } from './handlers/admin-rotate-agency-key';
+import { handleGenerateSignedPdfUrl } from './handlers/signed-pdf-url';
 import { getRequestId, addTraceabilityHeaders } from './request-id';
 
 export function createRouter() {
@@ -51,7 +52,10 @@ export function createRouter() {
   app.post('/api/client/:id/report/preview', handleReportPreview);
   app.post('/api/client/:id/report/send', handleReportSend);
 
-  // PDF download routes
+  // Hostile Audit Phase 2: Signed PDF URL generation
+  app.post('/api/reports/:clientId/:filename/signed-url', handleGenerateSignedPdfUrl);
+
+  // PDF download routes (Hostile Audit Phase 2: Requires signed token)
   // Support both single and double /reports/ path for backwards compatibility
   app.get('/reports/reports/:agencyId/:clientId/:filename', handlePdfDownload);
   app.get('/reports/:agencyId/:clientId/:filename', handlePdfDownload);

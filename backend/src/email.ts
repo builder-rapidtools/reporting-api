@@ -21,7 +21,7 @@ export interface SendReportEmailParams {
   to: string;
   subject: string;
   htmlSummary: string;
-  pdfKey?: string;
+  pdfUrl?: string; // Hostile Audit Phase 2: Now uses signed URL instead of pdfKey
 }
 
 /**
@@ -32,11 +32,10 @@ export async function sendReportEmail(
   env: Env,
   params: SendReportEmailParams
 ): Promise<EmailSendResult> {
-  const { to, subject, htmlSummary, pdfKey } = params;
+  const { to, subject, htmlSummary, pdfUrl } = params;
 
   const apiKey = env.EMAIL_PROVIDER_API_KEY;
   const fromAddress = env.EMAIL_FROM_ADDRESS || 'reports@rapidtools.io';
-  const baseUrl = env.BASE_URL || 'https://app.rapidtools.io';
 
   // Dev mode: No provider configured
   if (isDevMode(env) && !apiKey) {
@@ -46,7 +45,7 @@ export async function sendReportEmail(
     console.log(`To: ${to}`);
     console.log(`From: ${fromAddress}`);
     console.log(`Subject: ${subject}`);
-    console.log(`PDF Key: ${pdfKey || 'N/A'}`);
+    console.log(`PDF URL: ${pdfUrl || 'N/A'}`);
     console.log('-------------------------------------------');
     console.log('HTML Summary:');
     console.log(htmlSummary);
@@ -66,7 +65,7 @@ export async function sendReportEmail(
       from: fromAddress,
       subject,
       htmlBody: htmlSummary,
-      pdfKey,
+      pdfUrl,
     });
 
     return result;
@@ -90,21 +89,15 @@ async function sendViaResend(
     from: string;
     subject: string;
     htmlBody: string;
-    pdfKey?: string;
+    pdfUrl?: string;
   }
 ): Promise<EmailSendResult> {
-  const { to, from, subject, htmlBody, pdfKey } = params;
-
-  // TODO: If pdfKey is provided, fetch PDF from R2 and attach
-  // For MVP Phase 2, we'll include a link to the PDF instead of attaching it
+  const { to, from, subject, htmlBody, pdfUrl } = params;
 
   let html = htmlBody;
 
-  // If PDF exists, add download link
-  if (pdfKey) {
-    const baseUrl = env.BASE_URL || 'https://app.rapidtools.io';
-    // pdfKey already includes 'reports/' prefix, so don't add it again
-    const pdfUrl = `${baseUrl}/${pdfKey}`;
+  // Hostile Audit Phase 2: Add signed PDF download link
+  if (pdfUrl) {
     html += `
       <br><br>
       <div style="margin-top: 20px; padding: 15px; background: #f5f5f5; border-radius: 5px;">
@@ -112,6 +105,7 @@ async function sendViaResend(
         <a href="${pdfUrl}" style="display: inline-block; padding: 10px 20px; background: #3b82f6; color: white; text-decoration: none; border-radius: 5px;">
           Download PDF Report
         </a>
+        <p style="margin: 10px 0 0 0; font-size: 11px; color: #666;">This secure link expires in 24 hours.</p>
       </div>
     `;
   }

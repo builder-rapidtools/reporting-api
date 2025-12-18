@@ -13,11 +13,11 @@ import { Storage } from './storage';
 import { generateAndStoreReportPDF } from './pdf';
 import { sendReportEmail, buildReportEmailHtml } from './email';
 import { aggregateMetrics } from './handlers/uploads';
+import { generateSignedPdfUrl } from './pdf-token';
 
 export interface ReportSendResult {
   success: boolean;
   clientId: string;
-  clientName: string;
   error?: string;
   pdfKey?: string;
   sentAt?: string;
@@ -233,6 +233,21 @@ export async function sendClientReport(
         generatedAt,
       });
 
+      // Hostile Audit Phase 2: Generate signed URL for PDF download
+      // Extract filename from pdfKey (e.g., reports/agencyId/clientId/filename.pdf -> filename.pdf)
+      const filename = pdfResult.pdfKey.split('/').pop() || 'report.pdf';
+      const baseUrl = env.BASE_URL || 'https://reporting-api.rapidtools.dev';
+      const pdfSigningSecret = env.PDF_SIGNING_SECRET || 'default-secret-change-in-prod';
+
+      const { url: signedPdfUrl } = await generateSignedPdfUrl(
+        baseUrl,
+        agency.id,
+        client.id,
+        filename,
+        pdfSigningSecret,
+        86400 // 24 hours (long TTL for email links)
+      );
+
       // Build and send email
       const htmlSummary = buildReportEmailHtml({
         clientName: client.name,
@@ -248,7 +263,7 @@ export async function sendClientReport(
         to: client.email,
         subject: `Weekly Report: ${client.name}`,
         htmlSummary,
-        pdfKey: pdfResult.pdfKey,
+        pdfUrl: signedPdfUrl, // Hostile Audit Phase 2: Use signed URL
       });
 
       if (!emailResult.success) {

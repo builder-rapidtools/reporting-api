@@ -24,12 +24,12 @@ export async function createCheckoutSessionForAgency(
   agency: Agency
 ): Promise<CheckoutSession> {
   // Dev mode: No Stripe keys configured
+  // Hostile Audit Phase 2: No PII in logs
   if (isDevMode(env) && (!env.STRIPE_SECRET_KEY || !env.STRIPE_PRICE_ID_STARTER)) {
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('💳 STRIPE CHECKOUT (DEV MODE)');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log(`Agency: ${agency.name} (${agency.id})`);
-    console.log(`Billing Email: ${agency.billingEmail}`);
+    console.log(`Agency ID: ${agency.id}`);
     console.log('Price: Starter Plan (£25/month)');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 

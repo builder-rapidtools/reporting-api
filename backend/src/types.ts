@@ -17,6 +17,7 @@ export interface Env {
   FRONTEND_URL?: string;
   SENTRY_DSN?: string;
   ADMIN_SECRET?: string;
+  PDF_SIGNING_SECRET?: string; // Hostile Audit Phase 2: PDF token signing
 }
 
 export type AgencyId = string;
