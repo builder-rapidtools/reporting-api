@@ -1324,6 +1324,87 @@ After editing, redeploy:
 
 ---
 
+## Operational Scripts
+
+### API Key Rotation
+
+If an agency API key is accidentally exposed:
+
+```bash
+./scripts/fix-and-verify-agency-key.sh
+```
+
+Prompts for current key (hidden), rotates in production, verifies old key fails and new key works.
+Prints only success/failure and new key at the end.
+
+---
+
+## Admin Endpoints
+
+### Rotate Agency API Key
+
+**POST** `/api/admin/agency/:agencyId/rotate-key`
+
+Rotate an agency's API key. Requires admin authentication.
+
+**Headers:**
+```
+x-admin-secret: <ADMIN_SECRET>
+```
+
+**Request:**
+```bash
+curl -X POST https://reporting-tool-api.jamesredwards89.workers.dev/api/admin/agency/AGENCY_ID/rotate-key \
+  -H "x-admin-secret: YOUR_ADMIN_SECRET"
+```
+
+**Response (Success):**
+```json
+{
+  "success": true,
+  "newApiKey": "f2b4d8e1-9c7a-4f3d-b5e6-1a2c3d4e5f67"
+}
+```
+
+**Response (Forbidden):**
+```json
+{
+  "success": false,
+  "error": "Forbidden"
+}
+```
+
+**Response (Not Found):**
+```json
+{
+  "success": false,
+  "error": "Agency not found"
+}
+```
+
+**Configuration:**
+
+Set the admin secret in production:
+```bash
+wrangler secret put ADMIN_SECRET
+```
+
+**What it does:**
+1. Authenticates admin request using `x-admin-secret` header
+2. Fetches agency record from KV
+3. Generates new UUID v4 API key
+4. Updates agency record with new key
+5. Creates new lookup `agency_api_key:{newKey}` → `agencyId`
+6. Deletes old lookup `agency_api_key:{oldKey}`
+7. Returns new API key
+
+**Security:**
+- Returns HTTP 403 if `x-admin-secret` is missing or incorrect
+- Does not log secrets
+- Old API key is immediately invalidated
+
+---
+
 ## Troubleshooting
 
 ### KV namespace not found
