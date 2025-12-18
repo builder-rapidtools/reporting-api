@@ -6,8 +6,10 @@ import { Context } from 'hono';
 import { Env, ReportPreviewResponse } from '../types';
 import { Storage } from '../storage';
 import { aggregateMetrics } from './uploads';
-import { requireAgencyAuth, requireActiveSubscription } from '../auth';
+import { requireAgencyAuth, requireActiveSubscription, AuthError } from '../auth';
 import { sendClientReport } from '../report-sender';
+import { ok, fail } from '../response-helpers';
+import { checkIdempotencyKey, storeIdempotencyRecord } from '../idempotency';
 
 /**
  * POST /api/client/:id/report/preview
@@ -26,56 +28,39 @@ export async function handleReportPreview(c: Context): Promise<Response> {
     const clientId = c.req.param('id');
 
     if (!clientId) {
-      const response: ReportPreviewResponse = {
-        success: false,
-        error: 'Missing client ID',
-      };
-      return c.json(response, 400);
+      return fail(c, 'MISSING_REQUIRED_FIELDS', 'Missing client ID', 400);
     }
 
     // Verify client exists
     const client = await storage.getClient(clientId);
     if (!client) {
-      const response: ReportPreviewResponse = {
-        success: false,
-        error: 'Client not found',
-      };
-      return c.json(response, 404);
+      return fail(c, 'CLIENT_NOT_FOUND', 'Client not found', 404);
     }
 
     // Verify client belongs to authenticated agency
     if (client.agencyId !== agency.id) {
-      return c.json({ success: false, error: 'Unauthorized' }, 403);
+      return fail(c, 'UNAUTHORIZED', 'Unauthorized', 403);
     }
 
     // Get integration config to find latest CSV
     const integrationConfig = await storage.getIntegrationConfig(clientId);
 
     if (!integrationConfig || !integrationConfig.ga4CsvLatestKey) {
-      const response: ReportPreviewResponse = {
-        success: false,
-        error: 'No GA4 data uploaded for this client. Please upload a CSV first.',
-      };
-      return c.json(response, 404);
+      return fail(c, 'NO_DATA_UPLOADED', 'No GA4 data uploaded for this client. Please upload a CSV first.', 404);
     }
 
     // Fetch CSV from R2
     const csvContent = await storage.getCsvFromR2(integrationConfig.ga4CsvLatestKey);
 
     if (!csvContent) {
-      const response: ReportPreviewResponse = {
-        success: false,
-        error: 'CSV data not found in storage',
-      };
-      return c.json(response, 500);
+      return fail(c, 'DATA_NOT_FOUND', 'CSV data not found in storage', 500);
     }
 
     // Parse and aggregate metrics
     const rows = parseGA4Csv(csvContent);
     const metrics = aggregateMetrics(rows);
 
-    const response: ReportPreviewResponse = {
-      success: true,
+    return ok(c, {
       preview: {
         client: {
           id: client.id,
@@ -89,19 +74,18 @@ export async function handleReportPreview(c: Context): Promise<Response> {
         metrics,
         generatedAt: new Date().toISOString(),
       },
-    };
-
-    return c.json(response);
+    });
   } catch (error) {
-    if (error instanceof Error && error.name === 'AuthError') {
-      return c.json({ success: false, error: error.message }, (error as any).statusCode || 401);
+    if (error instanceof AuthError) {
+      return c.json(error.toJSON(), error.statusCode);
     }
 
-    const response: ReportPreviewResponse = {
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    };
-    return c.json(response, 500);
+    return fail(
+      c,
+      'INTERNAL_ERROR',
+      error instanceof Error ? error.message : 'Unknown error',
+      500
+    );
   }
 }
 
@@ -109,6 +93,11 @@ export async function handleReportPreview(c: Context): Promise<Response> {
  * POST /api/client/:id/report/send
  * Generate PDF report and email it to client
  * Delegates to sendClientReport for actual sending
+ *
+ * Supports optional idempotency via Idempotency-Key header:
+ * - When header present, prevents duplicate email sends
+ * - Returns cached response on replay with same payload
+ * - Returns 409 on replay with different payload
  */
 export async function handleReportSend(c: Context): Promise<Response> {
   const env = c.env as Env;
@@ -122,66 +111,125 @@ export async function handleReportSend(c: Context): Promise<Response> {
     const clientId = c.req.param('id');
 
     if (!clientId) {
-      return c.json({
-        success: false,
-        error: 'Missing client ID',
-      }, 400);
+      return fail(c, 'MISSING_REQUIRED_FIELDS', 'Missing client ID', 400);
     }
 
     // Verify client exists
     const client = await storage.getClient(clientId);
     if (!client) {
-      return c.json({
-        success: false,
-        error: 'Client not found',
-      }, 404);
+      return fail(c, 'CLIENT_NOT_FOUND', 'Client not found', 404);
     }
 
     // Verify client belongs to authenticated agency
     if (client.agencyId !== agency.id) {
-      return c.json({ success: false, error: 'Unauthorized' }, 403);
+      return fail(c, 'UNAUTHORIZED', 'Unauthorized', 403);
     }
 
-    // Use shared report sending logic
+    // Check for Idempotency-Key header
+    const idempotencyKey = c.req.header('idempotency-key');
+
+    if (idempotencyKey) {
+      // Build request payload for comparison
+      const requestPayload = {
+        clientId,
+        agencyId: agency.id,
+        // No body parameters for this endpoint currently
+      };
+
+      // Check if this key has been used before
+      const idempotencyCheck = await checkIdempotencyKey(
+        env.REPORTING_KV,
+        idempotencyKey,
+        agency.id,
+        clientId,
+        requestPayload
+      );
+
+      if (idempotencyCheck.isReplay) {
+        if (idempotencyCheck.payloadMismatch) {
+          // Same key, different payload - conflict
+          return fail(
+            c,
+            'IDEMPOTENCY_KEY_REUSE_MISMATCH',
+            'Idempotency key was already used with a different request payload',
+            409
+          );
+        }
+
+        // Same key, same payload - return cached response
+        const cachedResponse = idempotencyCheck.record!.response;
+        return ok(c, {
+          ...cachedResponse,
+          replayed: true,
+        });
+      }
+    }
+
+    // Proceed with sending report
     const result = await sendClientReport(env, agency, client, {
-      checkIdempotency: false, // HTTP endpoint allows manual re-send
+      checkIdempotency: false, // HTTP endpoint idempotency handled separately via Idempotency-Key header
       maxRetries: 0, // HTTP endpoint returns errors immediately
     });
 
     if (!result.success) {
-      return c.json({
-        success: false,
-        error: result.error,
-      }, 500);
+      return fail(c, 'REPORT_SEND_FAILED', result.error || 'Failed to send report', 500);
     }
 
     if (result.skipped) {
-      return c.json({
-        success: true,
+      const responseData = {
         skipped: true,
         skipReason: result.skipReason,
         clientId: result.clientId,
         clientName: result.clientName,
-      });
+      };
+
+      // Store idempotency record if key provided
+      if (idempotencyKey) {
+        await storeIdempotencyRecord(
+          env.REPORTING_KV,
+          idempotencyKey,
+          agency.id,
+          clientId,
+          { clientId, agencyId: agency.id },
+          responseData
+        );
+      }
+
+      return ok(c, responseData);
     }
 
-    return c.json({
-      success: true,
+    const responseData = {
       clientId: result.clientId,
       sentTo: client.email,
       pdfKey: result.pdfKey,
       sentAt: result.sentAt,
-    });
+    };
+
+    // Store idempotency record if key provided
+    if (idempotencyKey) {
+      await storeIdempotencyRecord(
+        env.REPORTING_KV,
+        idempotencyKey,
+        agency.id,
+        clientId,
+        { clientId, agencyId: agency.id },
+        responseData
+      );
+    }
+
+    return ok(c, responseData);
   } catch (error) {
-    if (error instanceof Error && error.name === 'AuthError') {
-      return c.json({ success: false, error: error.message, ...(error as any).metadata }, (error as any).statusCode || 401);
+    if (error instanceof AuthError) {
+      return c.json(error.toJSON(), error.statusCode);
     }
 
     console.error('Report send failed:', error);
-    return c.json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    }, 500);
+    return fail(
+      c,
+      'INTERNAL_ERROR',
+      error instanceof Error ? error.message : 'Unknown error',
+      500
+    );
   }
 }
 
