@@ -18,6 +18,10 @@ Automated weekly client reporting service that generates branded PDF reports fro
 
 Accepts GA4 CSV analytics exports per client, generates summary PDF reports, and delivers via email with secure download links.
 
+## Security
+
+Report vulnerabilities to security@rapidtools.dev. See disclosure policy: https://directory.rapidtools.dev/security
+
 ## Notes
 
 - No direct GA4 connection (CSV upload required)
