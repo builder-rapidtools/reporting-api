@@ -1,12 +1,12 @@
 name: Contract Tests
 
-  on:
+on:
     push:
       branches: [main]
     pull_request:
       branches: [main]
 
-  jobs:
+jobs:
     contract-tests:
       runs-on: ubuntu-latest
 
