@@ -1,0 +1,31 @@
+name: Contract Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  contract-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run contract tests
+        env:
+          TEST_API_KEY: ${{ secrets.REPORTING_API_KEY }}
+          TEST_CLIENT_ID: ${{ secrets.REPORTING_CLIENT_ID }}
+          TEST_BASE_URL: https://reporting-api.rapidtools.dev
+        run: npm test
