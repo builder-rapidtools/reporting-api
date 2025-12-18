@@ -100,8 +100,19 @@ export async function storeIdempotencyRecord(
  * Uses SHA-256 to create deterministic hash
  */
 async function hashPayload(payload: any): Promise<string> {
-  // Normalize payload by sorting keys and stringifying
-  const normalized = JSON.stringify(payload, Object.keys(payload).sort());
+  // Normalize payload by sorting keys recursively and stringifying
+  const normalized = JSON.stringify(payload, (key, value) => {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      // Sort object keys alphabetically
+      return Object.keys(value)
+        .sort()
+        .reduce((sorted: any, k) => {
+          sorted[k] = value[k];
+          return sorted;
+        }, {});
+    }
+    return value;
+  });
 
   // Use Web Crypto API (available in Cloudflare Workers)
   const encoder = new TextEncoder();
