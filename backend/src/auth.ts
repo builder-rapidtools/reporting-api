@@ -87,6 +87,7 @@ export function requireActiveSubscription(agency: Agency): void {
     throw new AuthError(
       `Subscription inactive. Status: ${agency.subscriptionStatus}`,
       402,
+      'SUBSCRIPTION_INACTIVE',
       {
         subscriptionStatus: agency.subscriptionStatus,
       }
@@ -101,6 +102,7 @@ export class AuthError extends Error {
   constructor(
     message: string,
     public statusCode: number = 401,
+    public code: string = 'UNAUTHORIZED',
     public metadata?: Record<string, any>
   ) {
     super(message);
@@ -109,8 +111,11 @@ export class AuthError extends Error {
 
   toJSON() {
     return {
-      success: false,
-      error: this.message,
+      ok: false,
+      error: {
+        code: this.code,
+        message: this.message,
+      },
       ...this.metadata,
     };
   }
