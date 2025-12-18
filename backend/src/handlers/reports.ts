@@ -128,12 +128,21 @@ export async function handleReportSend(c: Context): Promise<Response> {
     // Check for Idempotency-Key header
     const idempotencyKey = c.req.header('idempotency-key');
 
+    // Parse request body for idempotency check
+    let requestBody = {};
+    try {
+      requestBody = await c.req.json();
+    } catch {
+      // No body or invalid JSON - use empty object
+      requestBody = {};
+    }
+
     if (idempotencyKey) {
       // Build request payload for comparison
       const requestPayload = {
         clientId,
         agencyId: agency.id,
-        // No body parameters for this endpoint currently
+        body: requestBody,
       };
 
       // Check if this key has been used before
@@ -190,7 +199,7 @@ export async function handleReportSend(c: Context): Promise<Response> {
           idempotencyKey,
           agency.id,
           clientId,
-          { clientId, agencyId: agency.id },
+          { clientId, agencyId: agency.id, body: requestBody },
           responseData
         );
       }
@@ -212,7 +221,7 @@ export async function handleReportSend(c: Context): Promise<Response> {
         idempotencyKey,
         agency.id,
         clientId,
-        { clientId, agencyId: agency.id },
+        { clientId, agencyId: agency.id, body: requestBody },
         responseData
       );
     }
