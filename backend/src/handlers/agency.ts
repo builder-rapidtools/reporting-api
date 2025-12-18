@@ -9,14 +9,60 @@ import { requireAgencyAuth, AuthError } from '../auth';
 import { ok, fail } from '../response-helpers';
 
 /**
+ * Hostile Audit Phase 1: Check rate limit for agency registration
+ * Allows 3 registrations per IP per hour
+ */
+async function checkRegistrationRateLimit(
+  kv: KVNamespace,
+  clientIp: string
+): Promise<{ allowed: boolean; remainingAttempts?: number }> {
+  const RATE_LIMIT_MAX = 3; // Max registrations per window
+  const RATE_LIMIT_WINDOW_SECONDS = 3600; // 1 hour
+
+  const rateLimitKey = `registration_ratelimit:${clientIp}`;
+  const existing = await kv.get(rateLimitKey);
+
+  if (!existing) {
+    // First attempt, allow and store
+    await kv.put(rateLimitKey, '1', { expirationTtl: RATE_LIMIT_WINDOW_SECONDS });
+    return { allowed: true, remainingAttempts: RATE_LIMIT_MAX - 1 };
+  }
+
+  const attempts = parseInt(existing, 10);
+
+  if (attempts >= RATE_LIMIT_MAX) {
+    return { allowed: false, remainingAttempts: 0 };
+  }
+
+  // Increment counter
+  await kv.put(rateLimitKey, String(attempts + 1), { expirationTtl: RATE_LIMIT_WINDOW_SECONDS });
+  return { allowed: true, remainingAttempts: RATE_LIMIT_MAX - (attempts + 1) };
+}
+
+/**
  * POST /api/agency/register
  * Register a new agency and receive API key
+ *
+ * Hostile Audit Phase 1: Rate limited to prevent abuse
  */
 export async function handleRegisterAgency(c: Context): Promise<Response> {
   const env = c.env as Env;
   const storage = new Storage(env.REPORTING_KV, env.REPORTING_R2);
 
   try {
+    // Hostile Audit Phase 1: Rate limiting by IP
+    const clientIp = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'unknown';
+    const rateLimitCheck = await checkRegistrationRateLimit(env.REPORTING_KV, clientIp);
+
+    if (!rateLimitCheck.allowed) {
+      return fail(
+        c,
+        'RATE_LIMIT_EXCEEDED',
+        'Too many registration attempts. Please try again in 1 hour.',
+        429
+      );
+    }
+
     const body = await c.req.json<RegisterAgencyRequest>();
 
     // Validate required fields

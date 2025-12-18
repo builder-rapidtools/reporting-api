@@ -45,11 +45,36 @@ export async function handleUploadGA4Csv(c: Context): Promise<Response> {
       return fail(c, 'INVALID_CSV', 'Empty CSV content', 400);
     }
 
+    // Hostile Audit Phase 1: CSV size limit enforcement (5MB)
+    const MAX_CSV_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
+    const csvSizeBytes = new TextEncoder().encode(csvContent).length;
+
+    if (csvSizeBytes > MAX_CSV_SIZE_BYTES) {
+      return fail(
+        c,
+        'CSV_TOO_LARGE',
+        `CSV file exceeds maximum size of ${MAX_CSV_SIZE_BYTES / 1024 / 1024}MB (actual: ${(csvSizeBytes / 1024 / 1024).toFixed(2)}MB)`,
+        413
+      );
+    }
+
     // Parse and validate CSV
     const parsedData = parseGA4Csv(csvContent);
 
     if (parsedData.length === 0) {
       return fail(c, 'INVALID_CSV', 'No valid rows found in CSV', 400);
+    }
+
+    // Hostile Audit Phase 1: Row count limit enforcement (100,000 rows)
+    const MAX_CSV_ROWS = 100000;
+
+    if (parsedData.length > MAX_CSV_ROWS) {
+      return fail(
+        c,
+        'CSV_TOO_MANY_ROWS',
+        `CSV file exceeds maximum row count of ${MAX_CSV_ROWS} (actual: ${parsedData.length})`,
+        413
+      );
     }
 
     // Upload CSV to R2

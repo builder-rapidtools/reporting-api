@@ -79,8 +79,32 @@ async function getOrCreateDevAgency(storage: Storage): Promise<Agency> {
 /**
  * Check if agency subscription is active
  * Throws 402 Payment Required if subscription is inactive
+ *
+ * Hostile Audit Phase 1: Trial expiration enforcement
  */
 export function requireActiveSubscription(agency: Agency): void {
+  // Check if trial has expired
+  if (agency.subscriptionStatus === 'trial') {
+    if (agency.trialEndsAt) {
+      const trialEnd = new Date(agency.trialEndsAt);
+      const now = new Date();
+
+      if (now > trialEnd) {
+        throw new AuthError(
+          `Trial period expired on ${trialEnd.toISOString().split('T')[0]}. Please subscribe to continue.`,
+          402,
+          'TRIAL_EXPIRED',
+          {
+            subscriptionStatus: agency.subscriptionStatus,
+            trialEndsAt: agency.trialEndsAt,
+          }
+        );
+      }
+    }
+    // Backwards compat: agencies without trialEndsAt are allowed (legacy trials)
+    // New trials will have trialEndsAt set
+  }
+
   const activeStatuses: Agency['subscriptionStatus'][] = ['trial', 'active'];
 
   if (!activeStatuses.includes(agency.subscriptionStatus)) {

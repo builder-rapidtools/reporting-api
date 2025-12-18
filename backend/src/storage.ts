@@ -72,14 +72,19 @@ export class Storage {
   async createAgency(name: string, billingEmail: string): Promise<Agency> {
     const { v4: uuidv4 } = await import('uuid');
 
+    const now = new Date();
+    const trialEnd = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000); // 14 days from now
+
     const agency: Agency = {
       id: uuidv4(),
       name,
       billingEmail,
       apiKey: uuidv4(), // Generate secure API key
       subscriptionStatus: 'trial',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      subscriptionPlan: 'starter', // Hostile Audit Phase 1: Default to starter
+      trialEndsAt: trialEnd.toISOString(), // Hostile Audit Phase 1: 14-day trial
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
     };
 
     await this.saveAgency(agency);

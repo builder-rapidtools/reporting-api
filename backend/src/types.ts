@@ -31,6 +31,8 @@ export interface Agency {
   billingEmail: string;
   apiKey: string; // Secret token for API access
   subscriptionStatus: SubscriptionStatus;
+  subscriptionPlan?: SubscriptionPlan; // Default: starter
+  trialEndsAt?: string; // ISO timestamp - when trial expires
   stripeCustomerId?: string;
   stripeSubscriptionId?: string;
   createdAt: string; // ISO timestamp

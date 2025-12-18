@@ -35,6 +35,22 @@ export async function handleCreateClient(c: Context): Promise<Response> {
       return fail(c, 'INVALID_EMAIL', 'Invalid email format', 400);
     }
 
+    // Hostile Audit Phase 1: Client count enforcement for Starter plan
+    const plan = agency.subscriptionPlan || 'starter'; // Default to starter if not set
+    if (plan === 'starter') {
+      const existingClients = await storage.listClients(agency.id);
+      const STARTER_CLIENT_LIMIT = 5;
+
+      if (existingClients.length >= STARTER_CLIENT_LIMIT) {
+        return fail(
+          c,
+          'CLIENT_LIMIT_EXCEEDED',
+          `Starter plan allows up to ${STARTER_CLIENT_LIMIT} clients. Upgrade to Pro for unlimited clients.`,
+          403
+        );
+      }
+    }
+
     const client: Client = {
       id: uuidv4(),
       agencyId: agency.id,
