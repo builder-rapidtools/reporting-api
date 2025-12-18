@@ -4,7 +4,7 @@
  */
 
 import { Hono } from 'hono';
-import { Env } from './types';
+import { Env, Variables } from './types';
 import { handleHealthCheck } from './handlers/health';
 import { handleCreateClient, handleListClients, handleDeleteClient } from './handlers/clients';
 import { handleUploadGA4Csv } from './handlers/uploads';
@@ -17,7 +17,8 @@ import { handleGenerateSignedPdfUrl } from './handlers/signed-pdf-url';
 import { getRequestId, addTraceabilityHeaders } from './request-id';
 
 export function createRouter() {
-  const app = new Hono();
+  // Phase 4 Hardening: Add Variables type to fix TypeScript errors with context.set/get
+  const app = new Hono<{ Variables: Variables }>();
 
   // Global middleware: Add request ID to context and traceability headers to all responses
   app.use('*', async (c, next) => {

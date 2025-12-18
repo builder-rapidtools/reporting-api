@@ -18,6 +18,7 @@ import { generateSignedPdfUrl } from './pdf-token';
 export interface ReportSendResult {
   success: boolean;
   clientId: string;
+  clientName?: string; // Phase 2: Added for PII audit logging
   error?: string;
   pdfKey?: string;
   sentAt?: string;

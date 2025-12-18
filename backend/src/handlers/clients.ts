@@ -106,6 +106,12 @@ export async function handleListClients(c: Context): Promise<Response> {
 /**
  * DELETE /api/client/:id
  * Delete a client
+ *
+ * Headers:
+ * - X-Cascade-Delete: "true" (optional) - If set, also delete all R2 objects (CSVs, PDFs) and report metadata
+ *
+ * Hostile Audit Phase 4: Added cascade option to address "no orphaned data" principle
+ * Phase 4 Hardening: Changed from query parameter to header for safety
  */
 export async function handleDeleteClient(c: Context): Promise<Response> {
   const env = c.env as Env;
@@ -131,9 +137,16 @@ export async function handleDeleteClient(c: Context): Promise<Response> {
       return fail(c, 'FORBIDDEN', 'Unauthorized', 403);
     }
 
-    await storage.deleteClient(clientId);
+    // Hostile Audit Phase 4 Hardening: Cascade delete via header (safer than query param)
+    const cascadeHeader = c.req.header('x-cascade-delete');
+    const cascade = cascadeHeader === 'true';
 
-    return ok(c, { deleted: true });
+    await storage.deleteClient(clientId, { cascade });
+
+    return ok(c, {
+      deleted: true,
+      cascade: cascade
+    });
   } catch (error) {
     if (error instanceof AuthError) {
       return c.json(error.toJSON(), error.statusCode);

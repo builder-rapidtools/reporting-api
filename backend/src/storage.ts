@@ -145,7 +145,7 @@ export class Storage {
     return clients;
   }
 
-  async deleteClient(clientId: string): Promise<void> {
+  async deleteClient(clientId: string, options?: { cascade?: boolean }): Promise<void> {
     const client = await this.getClient(clientId);
     if (!client) {
       return;
@@ -162,8 +162,90 @@ export class Storage {
     const integrationKey = `client:${clientId}:integration`;
     await this.kv.delete(integrationKey);
 
-    // Note: Reports are kept for historical reference
-    // Future enhancement: cascade delete or archive
+    // Hostile Audit Phase 4: Cascade delete R2 objects and report metadata
+    if (options?.cascade) {
+      await this.cascadeDeleteClientData(client.agencyId, clientId);
+    }
+  }
+
+  /**
+   * Hostile Audit Phase 4: Cascade delete all R2 objects and KV report metadata for a client
+   * Idempotent: safe to call multiple times, no errors if objects already deleted
+   * Phase 4 Hardening: Added guardrails to ensure client-scoped deletion only
+   */
+  private async cascadeDeleteClientData(agencyId: string, clientId: string): Promise<void> {
+    // Phase 4 Hardening: Validate agencyId and clientId to prevent accidental agency-wide deletion
+    if (!agencyId || !clientId) {
+      console.error('Cannot cascade delete: missing agencyId or clientId');
+      return;
+    }
+
+    // Ensure IDs don't contain path traversal characters
+    if (agencyId.includes('/') || agencyId.includes('..') || clientId.includes('/') || clientId.includes('..')) {
+      console.error('Cannot cascade delete: invalid agencyId or clientId (contains path characters)');
+      return;
+    }
+
+    // Delete all CSV files for this client (client-scoped)
+    const csvPrefix = `ga4-csv/${agencyId}/${clientId}/`;
+    await this.deleteR2ObjectsByPrefix(csvPrefix);
+
+    // Delete all PDF reports for this client (client-scoped)
+    const pdfPrefix = `reports/${agencyId}/${clientId}/`;
+    await this.deleteR2ObjectsByPrefix(pdfPrefix);
+
+    // Delete report metadata from KV
+    const reportsKey = `client:${clientId}:reports`;
+    const reportIds = await this.kv.get(reportsKey, 'json') as string[] | null;
+
+    if (reportIds && reportIds.length > 0) {
+      // Delete each report metadata entry
+      for (const reportId of reportIds) {
+        const reportKey = `report:${reportId}`;
+        await this.kv.delete(reportKey);
+      }
+    }
+
+    // Delete the reports list itself
+    await this.kv.delete(reportsKey);
+  }
+
+  /**
+   * Hostile Audit Phase 4: Delete all R2 objects with a given prefix
+   * Idempotent: safe to call multiple times
+   * Phase 4 Hardening: Added guardrails to prevent agency-wide deletion
+   */
+  private async deleteR2ObjectsByPrefix(prefix: string): Promise<void> {
+    try {
+      // Phase 4 Hardening: Ensure prefix is client-scoped (must contain both agencyId and clientId)
+      // Valid patterns: ga4-csv/{agencyId}/{clientId}/ or reports/{agencyId}/{clientId}/
+      const validPrefixPattern = /^(ga4-csv|reports)\/[^\/]+\/[^\/]+\/$/;
+
+      if (!validPrefixPattern.test(prefix)) {
+        console.error(`Refusing to delete R2 objects: prefix "${prefix}" is not client-scoped`);
+        return;
+      }
+
+      // List all objects with the prefix
+      const listed = await this.r2.list({ prefix });
+
+      if (!listed.objects || listed.objects.length === 0) {
+        return;
+      }
+
+      // Delete each object
+      for (const object of listed.objects) {
+        await this.r2.delete(object.key);
+      }
+
+      // Handle pagination if there are more objects
+      if (listed.truncated) {
+        await this.deleteR2ObjectsByPrefix(prefix);
+      }
+    } catch (error) {
+      // Log error but don't throw - cascade delete should be best-effort
+      console.error(`Failed to delete R2 objects with prefix ${prefix}:`, error);
+    }
   }
 
   private async addClientToAgency(agencyId: string, clientId: string): Promise<void> {

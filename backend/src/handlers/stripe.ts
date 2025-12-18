@@ -54,7 +54,11 @@ export async function handleStripeWebhookEndpoint(c: Context): Promise<Response>
     const result = await handleStripeWebhook(c.env as Env, c.req.raw);
 
     if (result.success) {
-      return ok(c, result.data || {});
+      // Phase 4 Hardening: Fix TypeScript error - return message and eventId instead of non-existent data property
+      return ok(c, {
+        message: result.message || 'Webhook processed successfully',
+        eventId: result.eventId
+      });
     } else {
       return fail(c, 'WEBHOOK_ERROR', result.error || 'Webhook processing failed', 400);
     }

@@ -46,7 +46,8 @@ export async function signPdfToken(
 ): Promise<string> {
   const payloadJson = JSON.stringify(payload);
   const payloadBytes = new TextEncoder().encode(payloadJson);
-  const payloadB64 = base64urlEncode(payloadBytes);
+  // Phase 4 Hardening: Fix TypeScript error - use explicit ArrayBuffer cast
+  const payloadB64 = base64urlEncode(payloadBytes.buffer as ArrayBuffer);
 
   // Import secret key
   const keyData = new TextEncoder().encode(secret);

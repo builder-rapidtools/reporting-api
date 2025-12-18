@@ -20,6 +20,13 @@ export interface Env {
   PDF_SIGNING_SECRET?: string; // Hostile Audit Phase 2: PDF token signing
 }
 
+// Phase 4 Hardening: Define Hono context variables for TypeScript
+// Must have index signature to satisfy Hono's Variables constraint
+export interface Variables {
+  requestId: string;
+  [key: string]: any;
+}
+
 export type AgencyId = string;
 export type SubscriptionStatus = 'trial' | 'active' | 'past_due' | 'canceled';
 export type SubscriptionPlan = 'starter' | 'pro';

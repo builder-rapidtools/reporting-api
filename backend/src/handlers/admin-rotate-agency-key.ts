@@ -1,6 +1,7 @@
 /**
  * Admin handler for rotating agency API keys
  * Operating Principle: Admin operations require explicit authentication
+ * Hostile Audit Phase 4: Added audit logging for admin actions
  */
 
 import { Context } from 'hono';
@@ -15,8 +16,47 @@ interface RotateKeyResponse {
 }
 
 /**
+ * Hostile Audit Phase 4: Log admin action to KV
+ * Stores audit trail without PII
+ * Phase 4 Hardening: Use timestamp-based key to avoid race conditions
+ */
+async function logAdminAction(
+  kv: KVNamespace,
+  action: string,
+  agencyId: string,
+  requestId: string,
+  metadata?: Record<string, any>
+): Promise<void> {
+  const timestamp = Date.now(); // Unix milliseconds for sortability
+  const isoTimestamp = new Date().toISOString();
+
+  const auditEntry = {
+    action,
+    agencyId,
+    requestId,
+    timestamp: isoTimestamp,
+    metadata: metadata || {},
+  };
+
+  // Phase 4 Hardening: Use agency-scoped timestamp-based key to avoid race conditions
+  // Pattern: admin_audit:{agencyId}:{timestamp}:{requestId}
+  // This ensures uniqueness without needing to read-modify-write an index
+  const auditKey = `admin_audit:${agencyId}:${timestamp}:${requestId}`;
+
+  // Store audit entry with TTL of 90 days
+  await kv.put(auditKey, JSON.stringify(auditEntry), {
+    expirationTtl: 90 * 24 * 60 * 60, // 90 days
+  });
+
+  // Note: No index maintained. To retrieve audit logs for an agency,
+  // use KV list operation with prefix: admin_audit:{agencyId}:
+  // Logs are naturally sorted by timestamp due to key structure.
+}
+
+/**
  * POST /api/admin/agency/:agencyId/rotate-key
  * Rotate an agency's API key (admin-only)
+ * Hostile Audit Phase 4: Now logs rotation events to KV
  */
 export async function handleRotateAgencyKey(c: Context): Promise<Response> {
   const env = c.env as Env;
@@ -63,6 +103,18 @@ export async function handleRotateAgencyKey(c: Context): Promise<Response> {
       const oldLookupKey = `agency_api_key:${oldApiKey}`;
       await env.REPORTING_KV.delete(oldLookupKey);
     }
+
+    // Hostile Audit Phase 4: Log the rotation event
+    const requestId = c.req.header('cf-ray') || crypto.randomUUID();
+    await logAdminAction(
+      env.REPORTING_KV,
+      'rotate_agency_key',
+      agencyId,
+      requestId,
+      {
+        rotatedAt: new Date().toISOString(),
+      }
+    );
 
     return ok(c, {
       newApiKey,
