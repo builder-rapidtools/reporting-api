@@ -1,6 +1,12 @@
 name = "reporting-tool-api"
 main = "src/index.ts"
 compatibility_date = "2023-12-01"
+workers_dev = true
+
+# Route configuration for custom domain
+[[routes]]
+pattern = "reporting-api.rapidtools.dev/*"
+zone_name = "rapidtools.dev"
 
 # KV namespace for storing agency, client, and report metadata
 [[kv_namespaces]]
@@ -24,5 +30,5 @@ command = ""
 # Cron triggers for weekly report automation
 # Sends reports every Monday at 09:00 UTC
 # To disable cron: comment out the [triggers] section and redeploy
-[triggers]
-crons = ["0 9 * * 1"]  # Every Monday at 09:00 UTC
+# [triggers]
+# crons = ["0 9 * * 1"]  # Every Monday at 09:00 UTC

@@ -103,7 +103,8 @@ async function sendViaResend(
   // If PDF exists, add download link
   if (pdfKey) {
     const baseUrl = env.BASE_URL || 'https://app.rapidtools.io';
-    const pdfUrl = `${baseUrl}/reports/${pdfKey}`;
+    // pdfKey already includes 'reports/' prefix, so don't add it again
+    const pdfUrl = `${baseUrl}/${pdfKey}`;
     html += `
       <br><br>
       <div style="margin-top: 20px; padding: 15px; background: #f5f5f5; border-radius: 5px;">

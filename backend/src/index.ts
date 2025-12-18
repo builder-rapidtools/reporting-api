@@ -21,7 +21,7 @@ export default {
     // Validate environment on first request only
     if (!environmentValidated) {
       try {
-        assertValidEnvironment(env);
+        await assertValidEnvironment(env);
         environmentValidated = true;
       } catch (error) {
         // Environment validation failed - return 503 Service Unavailable

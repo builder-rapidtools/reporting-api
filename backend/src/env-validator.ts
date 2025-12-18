@@ -37,7 +37,7 @@ const OPTIONAL_WITH_DEFAULTS = {
  * Validate environment configuration on worker startup
  * Called from index.ts fetch handler on first request
  */
-export function validateEnvironment(env: Env): ValidationResult {
+export async function validateEnvironment(env: Env): Promise<ValidationResult> {
   const errors: string[] = [];
   const warnings: string[] = [];
 
@@ -89,6 +89,58 @@ export function validateEnvironment(env: Env): ValidationResult {
     }
   }
 
+  // Validate Stripe key format
+  if (env.STRIPE_SECRET_KEY) {
+    const stripeKeyMode = getStripeKeyMode(env.STRIPE_SECRET_KEY);
+
+    if (!stripeKeyMode) {
+      errors.push(
+        `STRIPE_SECRET_KEY has invalid format. Expected "sk_test_..." or "sk_live_..." but got "${env.STRIPE_SECRET_KEY.substring(0, 10)}..."`
+      );
+    } else {
+      // Warn if production is using test mode (allowed for hardening)
+      if (isProduction && stripeKeyMode === 'test') {
+        const requireLiveStripe = env.REQUIRE_LIVE_STRIPE_IN_PROD === 'true';
+
+        if (requireLiveStripe) {
+          errors.push(
+            'Production environment is using STRIPE_SECRET_KEY in TEST mode (sk_test_...). ' +
+            'This must be a LIVE mode key (sk_live_...) for production. ' +
+            'To allow test mode, unset REQUIRE_LIVE_STRIPE_IN_PROD.'
+          );
+        } else {
+          warnings.push(
+            'Production environment is using STRIPE_SECRET_KEY in TEST mode (sk_test_...). ' +
+            'This is allowed for hardening but should be changed to LIVE mode (sk_live_...) before launch.'
+          );
+        }
+      }
+
+      // Validate Stripe key and price mode match by checking price existence
+      if (env.STRIPE_PRICE_ID_STARTER) {
+        const priceValidation = await validateStripePriceExists(
+          env.STRIPE_SECRET_KEY,
+          env.STRIPE_PRICE_ID_STARTER
+        );
+
+        if (!priceValidation.valid) {
+          if (priceValidation.isModeMismatch) {
+            errors.push(
+              `Stripe key mode and price mode mismatch: ` +
+              `STRIPE_SECRET_KEY is in ${stripeKeyMode} mode but STRIPE_PRICE_ID_STARTER ` +
+              `("${env.STRIPE_PRICE_ID_STARTER}") does not exist in ${stripeKeyMode} mode. ` +
+              `Ensure the price ID was created in the Stripe ${stripeKeyMode} mode dashboard.`
+            );
+          } else {
+            errors.push(
+              `Failed to validate STRIPE_PRICE_ID_STARTER: ${priceValidation.error || 'Unknown error'}`
+            );
+          }
+        }
+      }
+    }
+  }
+
   // Validate KV and R2 bindings exist
   if (!env.REPORTING_KV) {
     errors.push('REPORTING_KV binding is not configured');
@@ -103,6 +155,64 @@ export function validateEnvironment(env: Env): ValidationResult {
     errors,
     warnings,
   };
+}
+
+/**
+ * Validate that a Stripe price exists using the provided API key
+ * Detects mode mismatches by calling Stripe API
+ */
+async function validateStripePriceExists(
+  secretKey: string,
+  priceId: string
+): Promise<{ valid: boolean; isModeMismatch?: boolean; error?: string }> {
+  try {
+    const response = await fetch(`https://api.stripe.com/v1/prices/${priceId}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${secretKey}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+    });
+
+    if (response.ok) {
+      return { valid: true };
+    }
+
+    const errorData = await response.json() as { error?: { message?: string; type?: string } };
+    const errorMessage = errorData.error?.message || 'Unknown error';
+
+    // If price doesn't exist, it's likely a mode mismatch
+    if (response.status === 404 || errorMessage.includes('No such price')) {
+      return {
+        valid: false,
+        isModeMismatch: true,
+      };
+    }
+
+    // Other error (auth failure, network issue, etc.)
+    return {
+      valid: false,
+      error: errorMessage,
+    };
+  } catch (error) {
+    return {
+      valid: false,
+      error: error instanceof Error ? error.message : 'Network error calling Stripe API',
+    };
+  }
+}
+
+/**
+ * Detect Stripe API key mode (test vs live)
+ * Returns 'test', 'live', or null if invalid format
+ */
+function getStripeKeyMode(stripeKey: string): 'test' | 'live' | null {
+  if (stripeKey.startsWith('sk_test_')) {
+    return 'test';
+  } else if (stripeKey.startsWith('sk_live_')) {
+    return 'live';
+  }
+  return null;
 }
 
 /**
@@ -151,8 +261,8 @@ export function getConfigValue<K extends keyof typeof OPTIONAL_WITH_DEFAULTS>(
  * Throws error if validation fails
  * Use this at application startup
  */
-export function assertValidEnvironment(env: Env): void {
-  const result = validateEnvironment(env);
+export async function assertValidEnvironment(env: Env): Promise<void> {
+  const result = await validateEnvironment(env);
 
   if (result.warnings.length > 0) {
     console.warn('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
