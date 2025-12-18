@@ -1,0 +1,25 @@
+name: Smoke Tests (Non-Auth)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  smoke-tests-non-auth:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run non-authenticated smoke tests
+        env:
+          RAPIDTOOLS_BASE_URL: https://reporting-api.rapidtools.dev
+        run: node scripts/smoke-prod.js
