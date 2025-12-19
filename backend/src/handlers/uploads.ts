@@ -38,6 +38,48 @@ export async function handleUploadGA4Csv(c: Context): Promise<Response> {
       return fail(c, 'UNAUTHORIZED', 'Unauthorized', 403);
     }
 
+    // Rate limiting: 20 CSV uploads per client per hour (FRS-3: Storage economic bounding)
+    // Copy-pattern from send_report endpoint
+    const rateLimitKey = `ratelimit:csv-upload:${clientId}`;
+    const rateLimitWindow = 3600; // 1 hour in seconds
+    const rateLimitMax = 20;
+
+    const currentValueStr = await env.REPORTING_KV.get(rateLimitKey);
+
+    // Parse stored value: "count:windowStart" or legacy "count"
+    let currentCount = 0;
+    let windowStart = Math.floor(Date.now() / 1000);
+
+    if (currentValueStr) {
+      const parts = currentValueStr.split(':');
+      currentCount = parseInt(parts[0], 10);
+      windowStart = parts.length > 1 ? parseInt(parts[1], 10) : windowStart;
+    }
+
+    const resetTime = windowStart + rateLimitWindow;
+    const remaining = Math.max(0, rateLimitMax - currentCount);
+
+    if (currentCount >= rateLimitMax) {
+      const response = fail(
+        c,
+        'RATE_LIMIT_EXCEEDED',
+        `CSV upload rate limit exceeded. Maximum ${rateLimitMax} uploads per client per hour.`,
+        429
+      );
+      // Add rate limit headers to 429 response (FRS-3: agent observability)
+      response.headers.set('X-RateLimit-Limit', rateLimitMax.toString());
+      response.headers.set('X-RateLimit-Remaining', '0');
+      response.headers.set('X-RateLimit-Reset', resetTime.toString());
+      return response;
+    }
+
+    // Increment rate limit counter, preserving window start time
+    const newCount = currentCount + 1;
+    const newValue = `${newCount}:${windowStart}`;
+    await env.REPORTING_KV.put(rateLimitKey, newValue, {
+      expirationTtl: rateLimitWindow,
+    });
+
     // Get CSV content from request body
     const csvContent = await c.req.text();
 
@@ -89,10 +131,15 @@ export async function handleUploadGA4Csv(c: Context): Promise<Response> {
 
     await storage.saveIntegrationConfig(integrationConfig);
 
-    return ok(c, {
+    const response = ok(c, {
       uploadedAt: integrationConfig.ga4CsvUploadedAt,
       rowsProcessed: parsedData.length,
     });
+    // Add rate limit headers (FRS-3: agent observability)
+    response.headers.set('X-RateLimit-Limit', rateLimitMax.toString());
+    response.headers.set('X-RateLimit-Remaining', Math.max(0, remaining - 1).toString());
+    response.headers.set('X-RateLimit-Reset', resetTime.toString());
+    return response;
   } catch (error) {
     if (error instanceof AuthError) {
       return c.json(error.toJSON(), error.statusCode);
