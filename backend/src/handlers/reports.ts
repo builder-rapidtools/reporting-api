@@ -125,8 +125,31 @@ export async function handleReportSend(c: Context): Promise<Response> {
       return fail(c, 'UNAUTHORIZED', 'Unauthorized', 403);
     }
 
-    // Check for Idempotency-Key header
-    const idempotencyKey = c.req.header('idempotency-key');
+    // Rate limiting: 10 reports per client per hour (FRS-1: Economic abuse prevention)
+    const rateLimitKey = `ratelimit:report-send:${clientId}`;
+    const rateLimitWindow = 3600; // 1 hour in seconds
+    const rateLimitMax = 10;
+
+    const currentCountStr = await env.REPORTING_KV.get(rateLimitKey);
+    const currentCount = currentCountStr ? parseInt(currentCountStr, 10) : 0;
+
+    if (currentCount >= rateLimitMax) {
+      return fail(
+        c,
+        'RATE_LIMIT_EXCEEDED',
+        `Report generation rate limit exceeded. Maximum ${rateLimitMax} reports per client per hour.`,
+        429
+      );
+    }
+
+    // Increment rate limit counter
+    const newCount = currentCount + 1;
+    await env.REPORTING_KV.put(rateLimitKey, newCount.toString(), {
+      expirationTtl: rateLimitWindow,
+    });
+
+    // Check for Idempotency-Key header (accept both lowercase and capitalized for HTTP spec compliance)
+    const idempotencyKey = c.req.header('idempotency-key') || c.req.header('Idempotency-Key');
 
     // Parse request body for idempotency check
     let requestBody = {};
