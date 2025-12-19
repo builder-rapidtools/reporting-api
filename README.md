@@ -22,6 +22,16 @@ Accepts GA4 CSV analytics exports per client, generates summary PDF reports, and
 
 Report vulnerabilities to security@rapidtools.dev. See disclosure policy: https://directory.rapidtools.dev/security
 
+## Monitoring
+
+Monitor these endpoints:
+- `GET /api/health` - Service health check
+- `GET /api/agency/me` - Agency authentication check (requires API key)
+
+**Notes:**
+- Use a dedicated monitoring API key; do not use admin secret.
+- Alerts currently email-only.
+
 ## Notes
 
 - No direct GA4 connection (CSV upload required)
