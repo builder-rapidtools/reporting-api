@@ -126,25 +126,44 @@ export async function handleReportSend(c: Context): Promise<Response> {
     }
 
     // Rate limiting: 10 reports per client per hour (FRS-1: Economic abuse prevention)
+    // FRS-2: Track window start time for X-RateLimit-Reset header
     const rateLimitKey = `ratelimit:report-send:${clientId}`;
     const rateLimitWindow = 3600; // 1 hour in seconds
     const rateLimitMax = 10;
 
-    const currentCountStr = await env.REPORTING_KV.get(rateLimitKey);
-    const currentCount = currentCountStr ? parseInt(currentCountStr, 10) : 0;
+    const currentValueStr = await env.REPORTING_KV.get(rateLimitKey);
+
+    // Parse stored value: "count:windowStart" or legacy "count"
+    let currentCount = 0;
+    let windowStart = Math.floor(Date.now() / 1000);
+
+    if (currentValueStr) {
+      const parts = currentValueStr.split(':');
+      currentCount = parseInt(parts[0], 10);
+      windowStart = parts.length > 1 ? parseInt(parts[1], 10) : windowStart;
+    }
+
+    const resetTime = windowStart + rateLimitWindow;
+    const remaining = Math.max(0, rateLimitMax - currentCount);
 
     if (currentCount >= rateLimitMax) {
-      return fail(
+      const response = fail(
         c,
         'RATE_LIMIT_EXCEEDED',
         `Report generation rate limit exceeded. Maximum ${rateLimitMax} reports per client per hour.`,
         429
       );
+      // Add rate limit headers to 429 response (FRS-2: agent observability)
+      response.headers.set('X-RateLimit-Limit', rateLimitMax.toString());
+      response.headers.set('X-RateLimit-Remaining', '0');
+      response.headers.set('X-RateLimit-Reset', resetTime.toString());
+      return response;
     }
 
-    // Increment rate limit counter
+    // Increment rate limit counter, preserving window start time
     const newCount = currentCount + 1;
-    await env.REPORTING_KV.put(rateLimitKey, newCount.toString(), {
+    const newValue = `${newCount}:${windowStart}`;
+    await env.REPORTING_KV.put(rateLimitKey, newValue, {
       expirationTtl: rateLimitWindow,
     });
 
@@ -168,14 +187,27 @@ export async function handleReportSend(c: Context): Promise<Response> {
         body: requestBody,
       };
 
-      // Check if this key has been used before
-      const idempotencyCheck = await checkIdempotencyKey(
-        env.REPORTING_KV,
-        idempotencyKey,
-        agency.id,
-        clientId,
-        requestPayload
-      );
+      // FRS-2: Fail closed if idempotency check fails (storage unavailable)
+      let idempotencyCheck;
+      try {
+        // Check if this key has been used before
+        idempotencyCheck = await checkIdempotencyKey(
+          env.REPORTING_KV,
+          idempotencyKey,
+          agency.id,
+          clientId,
+          requestPayload
+        );
+      } catch (error) {
+        // Idempotency check failed - reject request to prevent duplicates
+        console.error('Idempotency check failed:', error);
+        return fail(
+          c,
+          'IDEMPOTENCY_CHECK_FAILED',
+          'Unable to verify request idempotency. Please retry with a different idempotency key or without the header.',
+          503
+        );
+      }
 
       if (idempotencyCheck.isReplay) {
         if (idempotencyCheck.payloadMismatch) {
@@ -190,10 +222,15 @@ export async function handleReportSend(c: Context): Promise<Response> {
 
         // Same key, same payload - return cached response
         const cachedResponse = idempotencyCheck.record!.response;
-        return ok(c, {
+        const response = ok(c, {
           ...cachedResponse,
           replayed: true,
         });
+        // Add rate limit headers (FRS-2: agent observability)
+        response.headers.set('X-RateLimit-Limit', rateLimitMax.toString());
+        response.headers.set('X-RateLimit-Remaining', Math.max(0, remaining - 1).toString());
+        response.headers.set('X-RateLimit-Reset', resetTime.toString());
+        return response;
       }
     }
 
@@ -215,19 +252,29 @@ export async function handleReportSend(c: Context): Promise<Response> {
         clientName: result.clientName,
       };
 
-      // Store idempotency record if key provided
+      // Store idempotency record if key provided (FRS-2: non-blocking, log on failure)
       if (idempotencyKey) {
-        await storeIdempotencyRecord(
-          env.REPORTING_KV,
-          idempotencyKey,
-          agency.id,
-          clientId,
-          { clientId, agencyId: agency.id, body: requestBody },
-          responseData
-        );
+        try {
+          await storeIdempotencyRecord(
+            env.REPORTING_KV,
+            idempotencyKey,
+            agency.id,
+            clientId,
+            { clientId, agencyId: agency.id, body: requestBody },
+            responseData
+          );
+        } catch (error) {
+          // Log error but don't fail request (email already sent)
+          console.error('Failed to store idempotency record:', error);
+        }
       }
 
-      return ok(c, responseData);
+      const response = ok(c, responseData);
+      // Add rate limit headers (FRS-2: agent observability)
+      response.headers.set('X-RateLimit-Limit', rateLimitMax.toString());
+      response.headers.set('X-RateLimit-Remaining', Math.max(0, remaining - 1).toString());
+      response.headers.set('X-RateLimit-Reset', resetTime.toString());
+      return response;
     }
 
     const responseData = {
@@ -237,19 +284,29 @@ export async function handleReportSend(c: Context): Promise<Response> {
       sentAt: result.sentAt,
     };
 
-    // Store idempotency record if key provided
+    // Store idempotency record if key provided (FRS-2: non-blocking, log on failure)
     if (idempotencyKey) {
-      await storeIdempotencyRecord(
-        env.REPORTING_KV,
-        idempotencyKey,
-        agency.id,
-        clientId,
-        { clientId, agencyId: agency.id, body: requestBody },
-        responseData
-      );
+      try {
+        await storeIdempotencyRecord(
+          env.REPORTING_KV,
+          idempotencyKey,
+          agency.id,
+          clientId,
+          { clientId, agencyId: agency.id, body: requestBody },
+          responseData
+        );
+      } catch (error) {
+        // Log error but don't fail request (email already sent)
+        console.error('Failed to store idempotency record:', error);
+      }
     }
 
-    return ok(c, responseData);
+    const response = ok(c, responseData);
+    // Add rate limit headers (FRS-2: agent observability)
+    response.headers.set('X-RateLimit-Limit', rateLimitMax.toString());
+    response.headers.set('X-RateLimit-Remaining', Math.max(0, remaining - 1).toString());
+    response.headers.set('X-RateLimit-Reset', resetTime.toString());
+    return response;
   } catch (error) {
     if (error instanceof AuthError) {
       return c.json(error.toJSON(), error.statusCode);
